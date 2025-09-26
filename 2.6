@@ -1,0 +1,133 @@
+const int LED1_PIN = 9;
+const int LED2_PIN = 10;
+const int LED3_PIN = 11;
+
+const int BUTTON1_PIN = 2;
+const int BUTTON2_PIN = 3;
+const int BUTTON3_PIN = 4;
+
+const unsigned long DEBOUNCE_DELAY = 50;
+const unsigned long READ_INTERVAL = 200;
+
+unsigned long lastReadTime = 0;
+unsigned long lastDebounceTime[3] = {0, 0, 0};
+int buttonState[3] = {1, 1, 1};
+int lastButtonState[3] = {1, 1, 1};
+int stableButtonState[3] = {1, 1, 1};
+
+byte ledState = 0;
+
+void setup() {
+  DDRB |= (1 << DDB1);
+  DDRB |= (1 << DDB2);
+  DDRB |= (1 << DDB3);
+  
+  DDRD &= ~(1 << DDD2);
+  PORTD |= (1 << PORTD2);
+  DDRD &= ~(1 << DDD3);
+  PORTD |= (1 << PORTD3);
+  DDRD &= ~(1 << DDD4);
+  PORTD |= (1 << PORTD4);
+  
+  Serial.begin(9600);
+}
+
+void printBinary(byte value) {
+  Serial.print("B");
+  for (int i = 7; i >= 0; i--) {
+    Serial.print(bitRead(value, i));
+  }
+}
+
+int findFirstSetBitLoop(byte value) {
+  for (int i = 0; i < 8; i++) {
+    if (value & (1 << i)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+int findFirstSetBitBuiltin(byte value) {
+  if (value == 0) return -1;
+  return __builtin_ctz(value);
+}
+
+void readButtons() {
+  unsigned long currentTime = millis();
+  
+  buttonState[0] = (PIND & (1 << PIND2)) ? 1 : 0;
+  buttonState[1] = (PIND & (1 << PIND3)) ? 1 : 0;
+  buttonState[2] = (PIND & (1 << PIND4)) ? 1 : 0;
+  
+  for (int i = 0; i < 3; i++) {
+    if (buttonState[i] != lastButtonState[i]) {
+      lastDebounceTime[i] = currentTime;
+    }
+    
+    if ((currentTime - lastDebounceTime[i]) > DEBOUNCE_DELAY) {
+      if (buttonState[i] != stableButtonState[i]) {
+        stableButtonState[i] = buttonState[i];
+      }
+    }
+    
+    lastButtonState[i] = buttonState[i];
+  }
+}
+
+byte getButtonByte() {
+  byte result = 0;
+  if (stableButtonState[0] == 0) result |= (1 << 0);
+  if (stableButtonState[1] == 0) result |= (1 << 1);
+  if (stableButtonState[2] == 0) result |= (1 << 2);
+  return result;
+}
+
+void updateLeds(byte buttonByte) {
+  if (buttonByte != ledState) {
+    ledState = buttonByte;
+    
+    byte mask = (1 << PORTB1) | (1 << PORTB2) | (1 << PORTB3);
+    PORTB &= ~mask;
+    
+    if (buttonByte & (1 << 0)) PORTB |= (1 << PORTB1);
+    if (buttonByte & (1 << 1)) PORTB |= (1 << PORTB2);
+    if (buttonByte & (1 << 2)) PORTB |= (1 << PORTB3);
+  }
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+  
+  readButtons();
+  
+  if (currentTime - lastReadTime >= READ_INTERVAL) {
+    byte buttonByte = getButtonByte();
+    
+    Serial.print("Кнопки: ");
+    printBinary(buttonByte);
+    
+    int posLoop = findFirstSetBitLoop(buttonByte);
+    int posBuiltin = findFirstSetBitBuiltin(buttonByte);
+    
+    Serial.print(" | Первый бит (цикл): ");
+    if (posLoop != -1) {
+      Serial.print(posLoop);
+    } else {
+      Serial.print("нет");
+    }
+    
+    Serial.print(" | Первый бит (builtin): ");
+    if (posBuiltin != -1) {
+      Serial.print(posBuiltin);
+    } else {
+      Serial.print("нет");
+    }
+    
+    Serial.println();
+    
+    updateLeds(buttonByte);
+    
+    lastReadTime = currentTime;
+  }
+}
